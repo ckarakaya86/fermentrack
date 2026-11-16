@@ -235,6 +235,16 @@ from your own FTIR (or NIR) spectra and lab/physical measurements. Open it with
 | 7 Save & update | Save a version; update it with new lab-checked samples | Versioned registry with model cards (settings, statistics, data hash, exclusions). Update candidates: *bias update* or *refit with old + new samples*, judged on new samples they never saw |
 | 8 Auto-check | Check a saved model against new lab results | OK / WARNING / ACTION from accuracy vs promise, bias t-test, EWMA drift across checks and spectra outside the model, plus the likely fix. Optional automatic update |
 
+![Workbench: data step with format help and templates](docs/screenshots/wb_data.png)
+
+![Workbench: outliers with reasons](docs/screenshots/wb_outliers.png)
+
+![Workbench: cleaned model](docs/screenshots/wb_model.png)
+
+![Workbench: robustness tests](docs/screenshots/wb_robustness.png)
+
+![Workbench: automatic validation](docs/screenshots/wb_autocheck.png)
+
 **PLS-ANN.** The neural network does not see raw spectra (hundreds of correlated points, few
 samples, so it would overfit). It sees the first *k* PLS scores, a compact, noise-reduced summary,
 and can then model curvature PLS cannot. An ensemble of small networks gives a spread
@@ -243,7 +253,7 @@ the tests).
 
 **Try it on the examples.** `examples/ftir_calibration.xlsx` contains three planted problems: a
 fouled-probe spectrum, a decimal-point typing error and two swapped labels. The outlier step
-flags exactly these. Removing them takes ethanol RMSECV from **1.18 to 0.10 % w/v**
+flags these (plus one sample the weak first model predicts badly). Removing them takes ethanol RMSECV from **1.18 to 0.10 % w/v**
 (validation 0.10), and the model goes from 2 to 8 PLS components. Then save the model and run the
 auto-check with `ftir_new_lab_ok.xlsx` (→ OK) and `ftir_new_lab_drift.xlsx` (→ ACTION; the
 automatic update refits with the new samples and brings the error back to ~0.10).

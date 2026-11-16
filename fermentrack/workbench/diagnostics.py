@@ -10,8 +10,13 @@ Three independent questions, each with its own statistic:
                   describe at all? (contamination, fouling, wrong sample, air bubble)
 * Studentised residual - is the *reference value* suspicious? The prediction
                   (from cross-validation, i.e. without that sample) disagrees with
-                  the lab value by more than ~3 typical errors: a typing mistake
-                  or a bad lab measurement.
+                  the lab value by more than ~3 typical errors (more for large sets,
+                  where a few such values occur by chance): a typing mistake or a
+                  bad lab measurement.
+
+Outlier = strong evidence (residual beyond the limit, or Q more than twice its limit,
+or extreme AND badly predicted). A sample that is extreme but predicted well is
+kept: it is valuable because it extends the calibration range.
 
 Limits are 95 % (warning) and 99 % (action). A sample above the action limit is
 a candidate for removal, but the decision stays with the user: remove only with
@@ -81,29 +86,41 @@ def sample_diagnostics(model, X_raw, y=None, ids=None, use_cv=False) -> pd.DataF
 
     reasons, levels = [], []
     lo, hi = d["y_range"]
+    # Residual limit that accounts for the number of samples checked: with 240 samples a few
+    # |z| > 3 happen by chance alone (Bonferroni, 5 % family-wise, never below 3).
+    z_crit = max(3.0, float(sstats.norm.ppf(1 - 0.025 / max(len(out), 1))))
     for i in range(len(out)):
         r, level = [], 0
-        if t2[i] > d["t2_lim99"]:
-            r.append(f"extreme in model space (T² {t2[i]:.1f} > 99% limit {d['t2_lim99']:.1f})")
-            level = 2
+        # A high T² alone is NOT a reason to remove a sample: if it is predicted well it is an
+        # influential but valuable sample (it extends the range). It only becomes an outlier
+        # together with a large residual (checked below).
+        extreme = t2[i] > d["t2_lim99"]
+        if extreme:
+            r.append(f"extreme in model space (T² {t2[i] / d['t2_lim99']:.1f}x the 99% limit)")
+            level = max(level, 1)
         elif t2[i] > d["t2_lim95"]:
             r.append("somewhat extreme (T² above 95% limit)")
             level = max(level, 1)
-        if q[i] > d["q_lim99"]:
+        if q[i] > 2 * d["q_lim99"]:
             r.append(f"spectrum not explained by the model (Q {q[i] / d['q_lim99']:.1f}x the 99% limit)")
             level = 2
+        elif q[i] > d["q_lim99"]:
+            r.append(f"unusual spectral residual (Q {q[i] / d['q_lim99']:.1f}x the 99% limit)")
+            level = max(level, 1)
         elif q[i] > d["q_lim95"]:
             r.append("unusual spectral residual (Q above 95% limit)")
             level = max(level, 1)
         if y is not None and not np.isnan(y[i]):
             s = out["stud_residual"].iat[i]
-            if abs(s) > 3:
+            if abs(s) > z_crit:
                 r.append(f"reference value disagrees with spectrum ({s:+.1f} typical errors) - "
                          f"check lab value / sample label")
                 level = 2
             elif abs(s) > 2.5:
                 r.append("large residual (> 2.5 typical errors)")
-                level = max(level, 1)
+                level = 2 if extreme else max(level, 1)       # extreme AND badly predicted
+            elif extreme:
+                r.append("but predicted well - usually keep (it extends the calibration range)")
         if pred[i] < lo - 0.1 * (hi - lo) or pred[i] > hi + 0.1 * (hi - lo):
             r.append("prediction outside the calibration range (extrapolation)")
             level = max(level, 1)

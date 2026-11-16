@@ -25,6 +25,7 @@ and not worse on the original validation set.
 from __future__ import annotations
 
 import json
+import os
 import pickle
 import re
 from dataclasses import dataclass, field
@@ -38,7 +39,9 @@ from .models import FittedModel, ModelSpec, fit_model, regression_stats
 from .preprocess import Pipeline
 from .split import by_order
 
-DEFAULT_ROOT = Path(__file__).resolve().parents[2] / "model_registry"
+# set FERMENTRACK_REGISTRY to keep models somewhere else (e.g. a shared drive, or a temp folder)
+DEFAULT_ROOT = Path(os.environ.get("FERMENTRACK_REGISTRY",
+                                   Path(__file__).resolve().parents[2] / "model_registry"))
 
 
 @dataclass

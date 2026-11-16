@@ -63,6 +63,10 @@ You do not need to browse for these: steps 1, 7 and 8 each have an *example* opt
    Then `ftir_new_lab_drift.xlsx` with *Allow automatic update* ticked → **ACTION** →
    a better version `v002` is saved and activated.
 
+![Outlier step](screenshots/wb_outliers.png)
+
+![Auto-check step](screenshots/wb_autocheck.png)
+
 ### What each step does
 
 | Step | You do | Good to know |
@@ -77,6 +81,9 @@ You do not need to browse for these: steps 1, 7 and 8 each have an *example* opt
 | **8 Auto-check** | Pick a model, give new lab results → **Run check** | Verdict **OK / WARNING / ACTION** with findings and the likely fix. The history chart shows every check. With *Allow automatic update*, a new version is activated only if it is better on held-out new samples and not worse on the original validation. |
 
 ### Preparing your own data
+
+![Data step with format help](screenshots/wb_data.png)
+
 
 Your data = **one spectrum per sample** + **lab / physical values** for the same samples.
 Every sample needs a **unique `sample_id`**; this is how a lab value finds its spectrum.

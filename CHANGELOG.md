@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-11-16: Screenshots and outlier rules
+
+* All screenshots retaken after the pages finished loading (`docs/make_screenshots.py`, Playwright + Edge); Workbench screenshots added to the README and guide.
+* Outlier rules: a sample that is extreme (high T²) but predicted well is kept; residual limit accounts for the number of samples; Q only counts as an outlier above twice its limit. T² and Q shown as "× limit".
+* The registry location is shown without personal path parts; `FERMENTRACK_REGISTRY` can move it.
+
 ## 2026-11-16: Data preparation
 
 * Import of **one file per spectrum** (the usual FTIR export): header lines, comma / semicolon / tab separators and decimal commas understood; spectra on different wavenumber grids are aligned; the file name becomes the sample id.

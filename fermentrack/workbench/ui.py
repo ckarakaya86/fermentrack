@@ -120,6 +120,15 @@ def set_dataset(d: io.SpectralDataset):
     S()["wb_pipe"] = Pipeline().settings()
 
 
+def registry_label(root: Path) -> str:
+    """Registry location without personal parts of the path (shown on screen and in screenshots)."""
+    project = Path(__file__).resolve().parents[2]
+    try:
+        return str(Path(root).resolve().relative_to(project)).replace("\\", "/") + "/"
+    except ValueError:
+        return Path(root).name + "/  (set by FERMENTRACK_REGISTRY)"
+
+
 def flash(msg):
     """Show a success message after the page reloads (st.rerun would erase it otherwise)."""
     S()["wb_flash"] = msg
@@ -639,14 +648,16 @@ def step_outliers():
     if flagged.empty:
         st.success("No sample is above the 95 % limits.")
         return
-    tab = flagged[["sample_id", "set", "status", "reference", "predicted", "T2", "Q",
-                   "stud_residual", "reason"]].copy()
+    tab = flagged[["sample_id", "set", "status", "reference", "predicted", "stud_residual", "reason"]].copy()
+    tab.insert(5, "T² / limit", (flagged.T2 / lim["t2_lim99"]).to_numpy())
+    tab.insert(6, "Q / limit", (flagged.Q / lim["q_lim99"]).to_numpy())
     # pre-tick only strong evidence; borderline cases are listed for the user's judgement
-    strong = ((tab.stud_residual.abs() > 3) | (tab.Q > 2 * lim["q_lim99"]) | (tab.T2 > 2 * lim["t2_lim99"]))
-    tab.insert(0, "Exclude", strong.to_numpy())
-    st.caption("Pre-ticked: strong evidence only (residual > 3 typical errors, or Q / T² more than twice "
-               "the 99 % limit). Borderline samples are listed for your judgement - a whole batch just "
-               "above the limit is usually real variation the model should learn, not an outlier.")
+    tab.insert(0, "Exclude", (tab.status == "outlier").to_numpy())
+    st.caption("Pre-ticked = outliers with strong evidence: the lab value disagrees with the spectrum "
+               "(residual beyond ~3 typical errors, a little more for large data sets) or the spectrum "
+               "contains something unknown (Q more than twice its 99 % limit). A sample that is extreme "
+               "(high T²) but predicted well is kept - it extends the range. Warnings are for your "
+               "judgement. Do one cleaning round: repeating it removes good samples from the normal tail.")
     ed = st.data_editor(tab.round(4), hide_index=True, width="stretch",
                         disabled=[c for c in tab.columns if c != "Exclude"], key="wb_out_editor")
     if st.button("Exclude ticked samples and re-fit", type="primary"):
@@ -758,7 +769,7 @@ def step_robustness():
 def step_registry():
     st.header("7 · Save & update models")
     root = registry.DEFAULT_ROOT
-    st.caption(f"Models are stored as numbered versions in `{root}`.")
+    st.caption(f"Models are stored as numbered versions in `{registry_label(root)}`.")
 
     st.subheader("Save the current model")
     m = S().get("wb_model")
@@ -878,6 +889,7 @@ def step_autocheck():
                                  name="bias", line=dict(color=ORANGE, width=2)))
         fig.add_trace(go.Scatter(x=list(range(1, len(h) + 1)), y=h.expected_RMSE, mode="lines",
                                  name="promised (RMSECV)", line=dict(color=MUTED, dash="dash")))
+        fig.update_xaxes(dtick=1)                        # whole check numbers only
         show(layout(fig, f"{name}: error at each check", "error", "check number", 300))
         st.dataframe(h.drop(columns=["model"], errors="ignore").round(4), hide_index=True,
                      width="stretch")
