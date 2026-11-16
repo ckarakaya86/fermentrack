@@ -5,6 +5,11 @@
 FermenTrack shows the full workflow a process-analytics team needs in a fuel-ethanol plant:
 in-line spectra → concentrations (chemometrics) → early yield forecast, anomaly alerts with
 reasons, and calibration-health monitoring → a dashboard operators can read.
+It also includes a **Model Workbench** for building, validating, updating and automatically
+checking your own PLS / ANN models from FTIR or NIR spectra and lab measurements.
+
+**Start here:** [User guide](docs/USER_GUIDE.md) (how to open everything, which files to load,
+step by step) · [Changelog](CHANGELOG.md) (what was added when)
 
 > This is an independent portfolio project. **All data are simulated** (fixed seed, fully
 > reproducible); no plant or vendor data or code are used. It runs entirely on a local
