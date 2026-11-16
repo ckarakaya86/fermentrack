@@ -159,3 +159,40 @@ def test_cli_exit_codes(example, tmp_path):
     args = ["--model", "Eth", "--property", "Ethanol", "--registry", str(tmp_path)]
     assert autovalidate.main(args + ["--data", str(EX / "ftir_new_lab_ok.xlsx")]) == 0
     assert autovalidate.main(args + ["--data", str(EX / "ftir_new_lab_drift.xlsx")]) == 2
+
+
+# --- data preparation: one file per spectrum, templates ---------------------------------
+def test_single_spectrum_files_with_mixed_formats(tmp_path):
+    wn = np.arange(950, 1502, 2.0)
+    a = np.exp(-((wn - 1045) / 10) ** 2)
+    (tmp_path / "s1.csv").write_text("Title: FTIR\nWavenumber,Absorbance\n" +
+                                     "\n".join(f"{w:g},{v:.6f}" for w, v in zip(wn[::-1], a[::-1])))
+    (tmp_path / "s2.txt").write_text("Wellenzahl;Absorbanz\n" +
+                                     "\n".join(f"{w:g};{2 * v:.6f}".replace(".", ",") for w, v in zip(wn, a)))
+    wn3 = np.arange(940, 1512, 1.0)                     # a different grid and a wider range
+    (tmp_path / "s3.csv").write_text("\n".join(f"{w:g}\t{3 * np.exp(-((w - 1045) / 10) ** 2):.6f}"
+                                               for w in wn3))
+    d = io.read_spectrum_files([(f.name, f) for f in sorted(tmp_path.iterdir())])
+    assert list(d.ids) == ["s1", "s2", "s3"] and np.allclose(d.wn, wn)
+    assert np.allclose(d.X[1], 2 * d.X[0], atol=1e-5) and np.allclose(d.X[2], 3 * d.X[0], atol=1e-4)
+
+
+def test_decimal_comma_lab_values(tmp_path):
+    pd.DataFrame({"sample_id": ["a", "b"], "Ethanol": ["12,5", "3,25"]}).to_csv(tmp_path / "r.csv", index=False, sep=";")
+    ids, Y, _ = io.read_reference(tmp_path / "r.csv")
+    assert Y["Ethanol"].tolist() == [12.5, 3.25]
+
+
+def test_all_templates_give_the_same_data():
+    from fermentrack.workbench.examples import make_templates
+    T = EX / "templates"
+    if not (T / "single_spectra").exists():
+        make_templates()
+    a = io.read_spectra(T / "1_spectra_and_lab_values_in_one_file.xlsx")
+    b = io.attach_reference(io.read_spectra(T / "2_spectra_only.xlsx"), *io.read_reference(T / "3_lab_values.xlsx"))
+    c = io.read_spectra(T / "4_columns_layout.xlsx")
+    files = sorted((T / "single_spectra").glob("*.csv"))
+    d = io.read_spectrum_files([(f.name, f) for f in files])
+    for other in (b, c, d):
+        assert np.allclose(other.X, a.X, atol=1e-5)
+    assert np.allclose(b.Y["Ethanol"], a.Y["Ethanol"]) and np.allclose(c.Y["Ethanol"], a.Y["Ethanol"])

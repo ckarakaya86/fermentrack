@@ -67,7 +67,7 @@ You do not need to browse for these: steps 1, 7 and 8 each have an *example* opt
 
 | Step | You do | Good to know |
 |---|---|---|
-| **1 Data** | Upload spectra (+ optional separate reference file); choose the property; tick *Exclude* and type a reason for any sample you want to leave out | Two layouts are recognised: **rows = samples** (wavenumbers as column headers) or **columns = samples** (wavenumbers in column A). For Excel files with several sheets, pick the sheet. A reference file needs a `sample_id` column; optional `group` (batch/lot) and `date` columns enable better splits. *Download cleaned data* saves the edited set. |
+| **1 Data** | Upload one table of spectra, or many single-spectrum files, plus an optional lab file (see *Preparing your own data* below); choose the property; tick *Exclude* and type a reason for any sample you want to leave out | Two layouts are recognised: **rows = samples** (wavenumbers as column headers) or **columns = samples** (wavenumbers in column A). For Excel files with several sheets, pick the sheet. A reference file needs a `sample_id` column; optional `group` (batch/lot) and `date` columns enable better splits. *Download cleaned data* saves the edited set. |
 | **2 Spectra** | Choose wavenumber regions (e.g. `980-1200, 1250-1480`), baseline, SNV/MSC, smoothing, derivative | Raw and preprocessed spectra are drawn on top of each other. The expander shows the mean spectrum and the correlation of every wavenumber with the property, which helps choose regions. |
 | **3 Split** | Choose a split method and validation share → **Apply split** | *By group* is the honest default when samples of one batch are related; *By order/date* tests "train on the past, predict the future". The PCA plot shows whether validation samples sit inside the calibration space. |
 | **4 Model** | PLS or ANN, size by cross-validation or fixed → **Fit model** | Judge models by **RMSECV** and validation **RMSEP**, not by RMSEC. RPD > 3 is fine for screening, > 5 for quality control. Each fitted model is added to a comparison table. ANN = small neural network fed with PLS scores; useful when the relationship is curved. |
@@ -76,12 +76,61 @@ You do not need to browse for these: steps 1, 7 and 8 each have an *example* opt
 | **7 Save & update** | Save a version with notes; later upload new lab-checked samples → **Build update candidates** | Versions `v001`, `v002`… with a *model card* (settings, statistics, data fingerprint, excluded samples). Two update candidates are compared on new samples they never saw: a **bias update** (fixes a constant offset) or a **refit with old + new samples** (fixes new variation). |
 | **8 Auto-check** | Pick a model, give new lab results → **Run check** | Verdict **OK / WARNING / ACTION** with findings and the likely fix. The history chart shows every check. With *Allow automatic update*, a new version is activated only if it is better on held-out new samples and not worse on the original validation. |
 
-### Using your own data
+### Preparing your own data
 
-* Spectra and lab values can be in one file (lab values as extra columns) or in two files
-  (matched by `sample_id`).
-* Non-numeric columns other than `group` and `date` are kept as sample information.
-* Your saved models live in the `model_registry/` folder, which is **not** uploaded to GitHub.
+Your data = **one spectrum per sample** + **lab / physical values** for the same samples.
+Every sample needs a **unique `sample_id`**; this is how a lab value finds its spectrum.
+Templates are in `examples/templates/` and can also be downloaded in step 1 under
+*How should my files look?*. Each one holds 6 example samples you can overwrite.
+
+**Option A: one table (recommended).** Template `1_spectra_and_lab_values_in_one_file.xlsx`.
+One row per sample:
+
+| sample_id | group | date | Ethanol (% w/v) | Glucose (% w/v) | 4000 | 3998 | … | 650 |
+|---|---|---|---|---|---|---|---|---|
+| B12-08h | batch 12 | 2026-03-01 08:00 | 2.31 | 7.40 | 0.012 | 0.013 | … | 0.081 |
+| B12-24h | batch 12 | 2026-03-02 00:00 | 9.87 | 3.10 | 0.011 | 0.012 | … | 0.093 |
+| B13-08h | batch 13 | 2026-03-03 08:00 | 2.12 | *(empty)* | 0.012 | 0.012 | … | 0.080 |
+
+* `sample_id`: required, unique.
+* `group`: optional; batch, lot or day. Enables the honest *by group* split and cross-validation.
+* `date`: optional; enables the *by date* split ("train on the past, test on the future").
+* Property columns: one per lab / physical measurement, numbers only, empty if not measured.
+  A decimal comma (`12,5`) is fine. Put the unit in the header.
+* Wavenumber columns: every header that is a number between 200 and 15000 is read as a
+  wavenumber (cm⁻¹); the cells are absorbance values.
+* Any other text column (operator, comment…) is kept as sample information.
+
+**Option B: spectra and lab values in separate files.** Templates `2_spectra_only.xlsx` +
+`3_lab_values.xlsx`. Useful when the lab results arrive later. In step 1 choose
+*One table of spectra*, put the spectra file left and the lab file right; they are matched by
+`sample_id`.
+
+**Option C: one file per spectrum (typical FTIR export).** Example files are in
+`examples/templates/single_spectra/`. Each file has two columns, wavenumber and absorbance;
+header lines, comma / semicolon / tab separators and decimal commas are understood.
+**Name each file after its sample** (`B12-08h.csv`), because the file name becomes the
+`sample_id`. In step 1 choose *One file per spectrum*, select all files at once (Ctrl+A in the
+file window), and add the lab values file (as in B). If files have slightly different
+wavenumber points, all spectra are aligned to the first file within the shared range.
+
+**Columns = samples.** Template `4_columns_layout.xlsx`:
+wavenumbers down column A, one sample per column, rows such as `No`, `Date` and property names
+on top. Workbooks in this layout can be loaded directly; pick the sheet in step 1.
+
+**Good practice for a first model**
+
+* At least ~30 samples (more is better) covering the **whole** range you expect in use, from
+  low to high for every property.
+* The same instrument settings for all spectra (range, resolution, number of scans).
+  Use **absorbance**, not transmittance.
+* Measure the lab value on the **same sample** at the **same time** as the spectrum.
+* Record the batch / lot in `group`. Without it, samples from one batch can sit in both
+  calibration and validation, which makes the model look better than it is.
+* After loading, check in step 1 that the number of samples and properties is right, and in
+  step 2 that no spectrum looks odd.
+
+Your saved models live in the `model_registry/` folder, which is **not** uploaded to GitHub.
 
 ### Running the check automatically every day
 
@@ -100,7 +149,9 @@ needed and can trigger an e-mail. Step 8 shows the exact command for the selecte
 | Problem | Fix |
 |---|---|
 | Browser does not open | Go to `http://localhost:8501` (dashboard) or `http://localhost:8502` (workbench). |
-| "Could not find wavenumbers" | Wavenumbers must be numbers between 200 and 15000, either as column headers or in the first column. |
+| "Could not find wavenumbers" | Wavenumbers must be numbers between 200 and 15000, either as column headers or in the first column. Compare your file with the templates. |
+| Lab values do not appear | The `sample_id` in the lab file must be exactly the same as in the spectra (for per-spectrum files: the file name without `.csv`). |
+| A property column is missing | It contains text in most rows; keep only numbers there (empty = not measured). |
 | "At least 5 calibration samples…" | The chosen property has too few lab values after exclusions. |
 | "The data changed since the model was fitted" | You changed exclusions, preprocessing or the split: press **Fit model** again in step 4. |
 | A second app does not start | The dashboard uses port 8501 and the workbench 8502; close old black windows first. |

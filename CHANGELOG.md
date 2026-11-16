@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-16: Data preparation
+
+* Import of **one file per spectrum** (the usual FTIR export): header lines, comma / semicolon / tab separators and decimal commas understood; spectra on different wavenumber grids are aligned; the file name becomes the sample id.
+* Decimal commas accepted in spectra tables and lab values.
+* **Templates** in `examples/templates/` for every supported layout (one table, spectra + lab file, columns = samples, per-spectrum files), downloadable from step 1.
+* Step 1 explains with small examples how files should look; the user guide has a new *Preparing your own data* section with good-practice tips.
+* 3 new tests (48 in total).
+
 ## 2026-11-16: Model Workbench
 
 A second part of FermenTrack for **building and maintaining your own spectral models**

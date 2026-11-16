@@ -80,6 +80,11 @@ def _as_number(x):
         return None
 
 
+def _num_or_nan(x) -> float:
+    v = _as_number(x)
+    return np.nan if v is None else v
+
+
 def _clean_name(x) -> str:
     s = re.sub(r"\s+", " ", str(x)).strip()
     return s.replace("�", "°")          # repair a degree sign broken by old encodings
@@ -124,7 +129,7 @@ def _split_info(info: pd.DataFrame):
         elif lower[c] in DATE_NAMES:
             meta["date"] = info[c]
         else:
-            num = pd.to_numeric(info[c], errors="coerce")
+            num = info[c].map(_num_or_nan).astype(float)           # "12,3" counts as a number too
             if num.notna().mean() >= 0.5:
                 Y[cols[c]] = num
             else:
@@ -149,7 +154,7 @@ def read_spectra(path_or_buffer, sheet=0, name="") -> SpectralDataset:
         info_cols = [i for i in range(raw.shape[1]) if i not in wn_cols]
         body = raw.iloc[1:].reset_index(drop=True)
         wn = np.array([_as_number(header[i]) for i in wn_cols])
-        X = body.iloc[:, wn_cols].apply(pd.to_numeric, errors="coerce").to_numpy(float)
+        X = body.iloc[:, wn_cols].map(_num_or_nan).to_numpy(float)     # also reads "0,123"
         info = body.iloc[:, info_cols]
         info.columns = [_clean_name(header[i]) for i in info_cols]
         ids, Y, meta = _split_info(info)
@@ -161,7 +166,7 @@ def read_spectra(path_or_buffer, sheet=0, name="") -> SpectralDataset:
         spec_rows = np.where(is_wn)[0]
         spec_rows = spec_rows[spec_rows >= first]
         sample_cols = [c for c in range(1, raw.shape[1]) if pd.notna(raw.iat[first, c])]
-        X = raw.iloc[spec_rows, sample_cols].apply(pd.to_numeric, errors="coerce").to_numpy(float).T
+        X = raw.iloc[spec_rows, sample_cols].map(_num_or_nan).to_numpy(float).T
         label_rows = {_clean_name(raw.iat[r, 0]): r for r in range(first) if pd.notna(raw.iat[r, 0])}
         info = pd.DataFrame({lab: raw.iloc[r, sample_cols].to_numpy() for lab, r in label_rows.items()})
         ids, Y, meta = _split_info(info)
@@ -204,6 +209,75 @@ def attach_reference(ds: SpectralDataset, ids, Y: pd.DataFrame, meta: pd.DataFra
             m[c] = mm[c].reindex(ds.ids).to_numpy()
     return SpectralDataset(ds.ids, ds.wn, ds.X, merged.reset_index(drop=True),
                            m.reset_index(drop=True), ds.source)
+
+
+# ---------------------------------------------------------------------------
+# one file per spectrum (typical FTIR software export)
+# ---------------------------------------------------------------------------
+_NUM = re.compile(r"[-+]?\d+(?:[.,]\d+)?(?:[eE][-+]?\d+)?")
+
+
+def _two_column_lines(text: str) -> np.ndarray:
+    """(wavenumber, absorbance) pairs from a text export; header / info lines are skipped.
+
+    Handles comma, semicolon, tab or space separators and decimal commas (1234,5;0,123).
+    """
+    rows = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line[0].isalpha() or line.startswith(("#", "##", "%")):
+            continue
+        if ";" in line or "\t" in line:
+            parts = [p.strip().replace(",", ".") for p in re.split(r"[;\t]", line) if p.strip()]
+        else:
+            parts = [p for p in re.split(r"[,\s]+", line) if p]
+        nums = [_as_number(p) for p in parts[:2]]
+        if len(nums) == 2 and None not in nums:
+            rows.append(nums)
+    return np.array(rows, float)
+
+
+def read_single_spectrum(buffer, name: str) -> tuple[np.ndarray, np.ndarray]:
+    """Read one spectrum file with two columns: wavenumber, absorbance (or transmittance)."""
+    if name.lower().endswith((".xlsx", ".xls")):
+        raw = pd.read_excel(buffer, header=None)
+        num = raw.map(_as_number).dropna(how="any", subset=raw.columns[:2])
+        arr = num.iloc[:, :2].to_numpy(float)
+    else:
+        data = buffer.read() if hasattr(buffer, "read") else Path(buffer).read_bytes()
+        text = data.decode("utf-8", errors="replace") if isinstance(data, bytes) else data
+        arr = _two_column_lines(text)
+    if len(arr) < 10:
+        raise ValueError(f"{name}: expected two columns (wavenumber, absorbance) with at least 10 rows.")
+    if not (_looks_like_wavenumber(arr[0, 0]) and _looks_like_wavenumber(arr[-1, 0])):
+        raise ValueError(f"{name}: the first column does not look like wavenumbers (200-15000 cm-1).")
+    return arr[:, 0], arr[:, 1]
+
+
+def read_spectrum_files(files) -> SpectralDataset:
+    """Combine many single-spectrum files into one dataset.
+
+    `files` is a list of (name, file_or_path). The sample id is the file name without
+    its extension, so name the files after your samples (e.g. B12-24h.csv).
+    If the files have slightly different wavenumber points, all spectra are
+    interpolated onto the points of the first file, within the range they all share.
+    """
+    if not files:
+        raise ValueError("No files selected.")
+    spectra = [(Path(n).stem, *read_single_spectrum(f, n)) for n, f in files]
+    _, wn0, _ = spectra[0]
+    lo = max(min(w.min(), w.max()) for _, w, _ in spectra)
+    hi = min(max(w.min(), w.max()) for _, w, _ in spectra)
+    grid = np.sort(wn0[(wn0 >= lo) & (wn0 <= hi)])    # ascending, whatever order the files use
+    X = []
+    for _, w, a in spectra:
+        o = np.argsort(w)
+        X.append(np.interp(grid, w[o], a[o]))
+    ids = np.array([s[0] for s in spectra])
+    if len(set(ids)) != len(ids):
+        raise ValueError("Two files have the same name; sample ids must be unique.")
+    return SpectralDataset(ids, grid, np.array(X), pd.DataFrame(index=range(len(ids))),
+                           pd.DataFrame(index=range(len(ids))), f"{len(ids)} spectrum files")
 
 
 def to_excel(ds: SpectralDataset, path):

@@ -35,7 +35,7 @@ Or from a terminal:
 pip install -r requirements.txt
 python -m fermentrack.pipeline      # simulate + train + evaluate, prints a report
 streamlit run app.py                # dashboard at http://localhost:8501
-pytest                              # 45 tests, ~40 s
+pytest                              # 48 tests, ~40 s
 ```
 
 Useful dashboard links: `?page=monitor&batch=68&t=30` (replay batch 68 up to 30 h),
@@ -226,7 +226,7 @@ from your own FTIR (or NIR) spectra and lab/physical measurements. Open it with
 
 | Step | What you do | What happens behind it |
 |---|---|---|
-| 1 Data | Upload spectra (+ optional separate reference file), pick the property, tick samples to exclude with a reason | Layout detected automatically: rows = samples (wavenumber headers) or columns = samples (wavenumbers in column A). Reference values matched by sample id |
+| 1 Data | Upload one table of spectra or many single-spectrum files (+ optional lab file), pick the property, tick samples to exclude with a reason. Templates and a format guide are built in | Layout detected automatically: rows = samples (wavenumber headers) or columns = samples (wavenumbers in column A). Reference values matched by sample id |
 | 2 Spectra | Overlay spectra (coloured by value, by cal/val or excluded), set regions, baseline, SNV/MSC, smoothing, derivatives | Preprocessing is fitted on calibration samples only (MSC reference never sees validation data). Correlation plot shows informative regions |
 | 3 Split | Choose random, Kennard-Stone, stratified by value, by group, or by date | Histograms and PCA score plot show whether validation is inside the calibration space |
 | 4 Model | PLS or ANN; size chosen by cross-validation or fixed | Batch-wise / LOO / k-fold CV; RMSEC, RMSECV, RMSEP, R², bias, SEP, slope, RPD; models fitted in a session are compared side by side |
@@ -284,7 +284,7 @@ because it can contain confidential plant data.
 
 ## Tests
 
-`pytest` runs 45 tests. Dashboard and simulation (21): physics sanity (mass balance, Beer-Lambert linearity, faults reduce
+`pytest` runs 48 tests. Dashboard and simulation (21): physics sanity (mass balance, Beer-Lambert linearity, faults reduce
 yield), chemometrics (SNV, derivatives, exact PLS recovery, batch-wise folds), process rules
 (persistence, Q flags an unknown band, EWMA detects drift, features never use future data)
 and an end-to-end run with minimum performance requirements. Workbench (24): both file layouts, MSC, splits, PLS accuracy, ANN beating PLS on curved data, planted outliers found, robustness tools, registry/update/auto-check including the command-line exit codes, and a headless click-through of every workbench step.

@@ -150,22 +150,102 @@ def sidebar_status():
 # ============================================================================
 # 1 Data
 # ============================================================================
+TEMPLATES = EXAMPLES / "templates"
+
+
+def _zip_folder(folder: Path) -> bytes:
+    import zipfile
+    buf = _io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for f in sorted(folder.iterdir()):
+            z.write(f, f.name)
+    return buf.getvalue()
+
+
+def data_help():
+    """'How should my files look?' with small pictures of each layout and template downloads."""
+    with st.expander("How should my files look?  (templates to download)", expanded=S().get("wb_ds") is None):
+        st.markdown(
+            "Your data are **spectra** (one per sample) plus **lab / physical values** for the same "
+            "samples. Every sample needs a **unique sample id**; that is how lab values find their "
+            "spectrum. Three ways to bring them in:")
+        t1, t2, t3 = st.tabs(["A · One table (recommended)", "B · Spectra + separate lab file",
+                              "C · One file per spectrum"])
+        with t1:
+            st.markdown("One row per sample: information columns, lab values, then one column per "
+                        "wavenumber (header = the wavenumber number).")
+            st.dataframe(pd.DataFrame({
+                "sample_id": ["B12-08h", "B12-24h", "B13-08h"], "group": ["batch 12", "batch 12", "batch 13"],
+                "date": ["2026-03-01 08:00", "2026-03-02 00:00", "2026-03-03 08:00"],
+                "Ethanol": [2.31, 9.87, 2.12], "Glucose": [7.4, 3.1, None],
+                "4000": [0.012, 0.011, 0.012], "3998": [0.013, 0.012, 0.012], "…": ["…"] * 3,
+                "650": [0.081, 0.093, 0.080]}), hide_index=True)
+            st.caption("`group` (batch/lot/day) and `date` are optional but enable honest splits. Empty "
+                       "cell = not measured. The **columns = samples** layout "
+                       "(wavenumbers down column A, one sample per column, property rows on top) is "
+                       "read as well; see template 4.")
+        with t2:
+            st.markdown("Spectra in one file (as A, without lab columns) and lab values in another, "
+                        "matched by `sample_id`. Handy when the lab results arrive later.")
+            st.dataframe(pd.DataFrame({"sample_id": ["B12-08h", "B12-24h"], "group": ["batch 12"] * 2,
+                                       "Ethanol": [2.31, 9.87], "Glucose": [7.4, 3.1]}), hide_index=True)
+            st.caption("Load the spectra under *One table of spectra* and the lab file under "
+                       "*Reference values*.")
+        with t3:
+            st.markdown("The usual FTIR export: one CSV/TXT per measurement with two columns, "
+                        "wavenumber and absorbance. **Name each file after the sample** "
+                        "(`B12-08h.csv`); the name becomes the sample id. Header lines, comma / "
+                        "semicolon / tab separators and decimal commas are all understood. Add the lab "
+                        "values as a separate file as in B.")
+            st.code("Wavenumber (cm-1),Absorbance\n4000,0.0121\n3998,0.0123\n...", language="text")
+        st.markdown("**Templates** (each contains 6 real-looking example samples you can overwrite):")
+        c = st.columns(5)
+        for col, (label, name) in zip(c, [
+                ("A · one table", "1_spectra_and_lab_values_in_one_file.xlsx"),
+                ("B · spectra only", "2_spectra_only.xlsx"), ("B · lab values", "3_lab_values.xlsx"),
+                ("Columns layout", "4_columns_layout.xlsx")]):
+            if (TEMPLATES / name).exists():
+                col.download_button(label, (TEMPLATES / name).read_bytes(), name, key=f"tpl_{name}")
+        if (TEMPLATES / "single_spectra").exists():
+            c[4].download_button("C · per-spectrum files (zip)", _zip_folder(TEMPLATES / "single_spectra"),
+                                 "single_spectra_example.zip", key="tpl_zip")
+        st.caption("Tips: one unit per property (write it in the header, e.g. `Ethanol (% w/v)`); "
+                   "the same wavenumber range and resolution for all spectra; absorbance rather than "
+                   "transmittance; at least ~30 samples spanning the whole expected range for a first model.")
+
+
 def step_data():
     st.header("1 · Data")
-    st.caption("Spectra file: rows = samples with wavenumbers as column headers, or columns = samples "
-               "with wavenumbers in the first column. Reference values "
-               "can be in the same file or in a separate file matched by sample id.")
-    src = st.radio("Source", ["Upload my files", "Example: simulated FTIR (fermentation)"],
+    data_help()
+    src = st.radio("Source", ["One table of spectra (Excel / CSV)", "One file per spectrum",
+                              "Example: simulated FTIR (fermentation)"],
                    horizontal=True, key="wb_src")
     if src.startswith("Example"):
         if st.button("Load example calibration data", type="primary"):
             set_dataset(read_example("ftir_calibration.xlsx"))
             S()["wb_prop"] = "Ethanol"
             st.rerun()
+    elif src == "One file per spectrum":
+        c1, c2 = st.columns(2)
+        files = c1.file_uploader("Spectrum files (select them all at once)", accept_multiple_files=True,
+                                 type=["csv", "txt", "xlsx", "dpt", "prn"],
+                                 help="Each file: two columns, wavenumber and absorbance. "
+                                      "The file name becomes the sample id.")
+        ref_file = c2.file_uploader("Lab values (sample_id + one column per property)",
+                                    type=["xlsx", "xls", "csv"], key="wb_ref_multi")
+        if files and st.button(f"Read {len(files)} files", type="primary"):
+            try:
+                d = io.read_spectrum_files([(f.name, f) for f in files])
+                if ref_file is not None:
+                    d = io.attach_reference(d, *io.read_reference(ref_file, name=ref_file.name))
+                set_dataset(d)
+                st.rerun()
+            except Exception as e:
+                st.error(f"Could not read the files: {e}")
     else:
         c1, c2 = st.columns(2)
-        spec_file = c1.file_uploader("Spectra (Excel / CSV)", type=["xlsx", "xls", "csv", "txt"])
-        ref_file = c2.file_uploader("Reference values (optional)", type=["xlsx", "xls", "csv"])
+        spec_file = c1.file_uploader("Spectra table (Excel / CSV)", type=["xlsx", "xls", "csv", "txt"])
+        ref_file = c2.file_uploader("Reference values - separate lab file (optional)", type=["xlsx", "xls", "csv"])
         sheet = 0
         if spec_file is not None and spec_file.name.lower().endswith(("xlsx", "xls")):
             sheets = io.excel_sheets(spec_file)

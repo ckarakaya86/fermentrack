@@ -86,5 +86,64 @@ def make(out: Path = OUT, seed: int = C.SEED) -> dict:
     return planted
 
 
+INSTRUCTIONS = [
+    ("What", "How"),
+    ("One row", "One sample (one spectrum)."),
+    ("sample_id", "Required. A unique name per sample, e.g. B12-24h. Used to match lab values."),
+    ("group", "Optional. Batch, lot or day. Enables the honest 'by group' split and cross-validation."),
+    ("date", "Optional. Sampling date/time, e.g. 2026-03-01 14:30. Enables the 'by date' split."),
+    ("Property columns", "One column per lab / physical measurement (e.g. Ethanol, Density, API). "
+                         "Numbers only; leave the cell empty if not measured. Decimal comma is fine."),
+    ("Wavenumber columns", "Everything whose header is a number between 200 and 15000 is read as a "
+                           "wavenumber (cm-1); the cells below are absorbance values."),
+    ("Units", "Use the same unit for a property in every row; write it in the header, e.g. 'Ethanol (% w/v)'."),
+    ("Other columns", "Any other text column (operator, comment...) is kept as sample information."),
+]
+
+
+def make_templates(out: Path = OUT / "templates", seed: int = C.SEED):
+    """Blank-to-fill templates (with 6 real-looking example rows) for preparing your own data."""
+    data = dataset.generate(seed)
+    lab = data.lab[(data.lab.batch_id.isin([0, 5])) & (data.lab.time_h.isin([8, 24, 60]) |
+                                                       data.lab.time_h.between(7, 25))].head(6)
+    full = _frame(data, lab)[["sample_id", "group", "date", "Ethanol", "Glucose"]
+                            + [f"{w:g}" for w in data.wavenumbers]]
+    full.loc[full.index[-1], "Glucose"] = np.nan                     # shows: empty = not measured
+    out.mkdir(parents=True, exist_ok=True)
+    guide = pd.DataFrame(INSTRUCTIONS[1:], columns=INSTRUCTIONS[0])
+
+    with pd.ExcelWriter(out / "1_spectra_and_lab_values_in_one_file.xlsx") as xw:
+        full.to_excel(xw, sheet_name="data", index=False)
+        guide.to_excel(xw, sheet_name="instructions", index=False)
+    spec_only = full.drop(columns=["group", "date", "Ethanol", "Glucose"])
+    spec_only.to_excel(out / "2_spectra_only.xlsx", index=False)
+    full[["sample_id", "group", "date", "Ethanol", "Glucose"]].to_excel(out / "3_lab_values.xlsx", index=False)
+
+    # the columns = samples layout: one column per sample, wavenumbers in column A
+    wn_cols = [f"{w:g}" for w in data.wavenumbers]
+    top = pd.DataFrame([["No", *full.sample_id], ["Date", *full.date],
+                        ["Ethanol", *full.Ethanol], ["Glucose", *full.Glucose]])
+    body = pd.DataFrame(np.column_stack([data.wavenumbers, full[wn_cols].to_numpy(float).T]))
+    pd.concat([top, body], ignore_index=True).to_excel(out / "4_columns_layout.xlsx",
+                                                       header=False, index=False)
+
+    # one file per spectrum, the way most FTIR software exports them
+    single = out / "single_spectra"
+    single.mkdir(exist_ok=True)
+    for k, r in enumerate(full.itertuples()):
+        a = full.loc[r.Index, wn_cols].to_numpy(float)
+        if k % 2 == 0:       # English style: header lines, comma separator, decimal point
+            lines = ["Title: FTIR spectrum", f"Sample: {r.sample_id}", "Wavenumber (cm-1),Absorbance"]
+            lines += [f"{w:g},{v:.6f}" for w, v in zip(data.wavenumbers[::-1], a[::-1])]
+        else:                # European style: semicolon separator, decimal comma
+            lines = ["Wellenzahl;Absorbanz"]
+            lines += [f"{w:g};{v:.6f}".replace(".", ",") for w, v in zip(data.wavenumbers, a)]
+        (single / f"{r.sample_id}.csv").write_text("\n".join(lines), encoding="utf-8")
+    full[["sample_id", "group", "date", "Ethanol", "Glucose"]].to_excel(single / "lab_values.xlsx",
+                                                                       index=False)
+    return out
+
+
 if __name__ == "__main__":
     print(make())
+    print(make_templates())
