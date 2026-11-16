@@ -21,13 +21,16 @@ reasons, and calibration-health monitoring → a dashboard operators can read.
    opens it in your browser. On the first start it simulates the plant and trains every
    model (~15 s).
 
+For the Model Workbench (build your own models from FTIR + lab data), double-click
+**`Workbench.bat`** (see section 4).
+
 Or from a terminal:
 
 ```bash
 pip install -r requirements.txt
 python -m fermentrack.pipeline      # simulate + train + evaluate, prints a report
 streamlit run app.py                # dashboard at http://localhost:8501
-pytest                              # 21 tests, ~10 s
+pytest                              # 45 tests, ~40 s
 ```
 
 Useful dashboard links: `?page=monitor&batch=68&t=30` (replay batch 68 up to 30 h),
@@ -38,6 +41,19 @@ Useful dashboard links: `?page=monitor&batch=68&t=30` (replay batch 68 up to 30 
 ## What is in the box
 
 ```
+fermentrack/workbench/   Model Workbench: build / update / check your own spectral models
+  io.py                  read spectra + reference values (Excel/CSV, rows or columns = samples)
+  preprocess.py          regions, baseline, SNV/MSC, Savitzky-Golay smoothing/derivatives
+  split.py               calibration/validation splits (random, Kennard-Stone, by group, by date...)
+  models.py              PLS and PLS-ANN with cross-validation and figures of merit
+  diagnostics.py         outliers: Hotelling T², Q residuals, leverage, studentised residuals
+  robustness.py          perturbation, resampling and y-randomisation tests
+  registry.py            versioned model storage, model cards, bias / augment updates
+  autovalidate.py        self-check against new lab data (also a command-line tool)
+  ui.py                  the workbench interface
+workbench_app.py         stand-alone workbench (also a page inside app.py)
+Workbench.bat            one-click launcher for the workbench
+examples/                example FTIR files (simulated) with planted problems to find
 fermentrack/
   config.py              all settings in one place (analytes, time grid, batch plan, thresholds)
   kinetics.py            fermentation model (enzymes + yeast + bacteria), one batch at a time
@@ -197,6 +213,48 @@ calibration's cross-validation.
 
 ---
 
+## 4. Model Workbench: build, update and check your own models
+
+The dashboard shows what models *do*; the workbench is where models are *made and maintained*,
+from your own FTIR (or NIR) spectra and lab/physical measurements. Open it with
+**`Workbench.bat`** (port 8502) or as the **Model workbench** page inside the dashboard.
+
+| Step | What you do | What happens behind it |
+|---|---|---|
+| 1 Data | Upload spectra (+ optional separate reference file), pick the property, tick samples to exclude with a reason | Layout detected automatically: rows = samples (wavenumber headers) or columns = samples (wavenumbers in column A). Reference values matched by sample id |
+| 2 Spectra | Overlay spectra (coloured by value, by cal/val or excluded), set regions, baseline, SNV/MSC, smoothing, derivatives | Preprocessing is fitted on calibration samples only (MSC reference never sees validation data). Correlation plot shows informative regions |
+| 3 Split | Choose random, Kennard-Stone, stratified by value, by group, or by date | Histograms and PCA score plot show whether validation is inside the calibration space |
+| 4 Model | PLS or ANN; size chosen by cross-validation or fixed | Batch-wise / LOO / k-fold CV; RMSEC, RMSECV, RMSEP, R², bias, SEP, slope, RPD; models fitted in a session are compared side by side |
+| 5 Outliers | Review flagged samples, tick and exclude, re-fit | T² (extreme), Q (unexplained spectrum), studentised CV residual (suspicious lab value); every exclusion is logged with its reason and can be undone |
+| 6 Robustness | Run three tests | Disturbed spectra (noise, offset, slope, gain, wavenumber shift), many random splits, y-randomisation (chance-correlation check) |
+| 7 Save & update | Save a version; update it with new lab-checked samples | Versioned registry with model cards (settings, statistics, data hash, exclusions). Update candidates: *bias update* or *refit with old + new samples*, judged on new samples they never saw |
+| 8 Auto-check | Check a saved model against new lab results | OK / WARNING / ACTION from accuracy vs promise, bias t-test, EWMA drift across checks and spectra outside the model, plus the likely fix. Optional automatic update |
+
+**PLS-ANN.** The neural network does not see raw spectra (hundreds of correlated points, few
+samples, so it would overfit). It sees the first *k* PLS scores, a compact, noise-reduced summary,
+and can then model curvature PLS cannot. An ensemble of small networks gives a spread
+(uncertainty). On linear data PLS wins; on a curved relationship the ANN wins (both checked in
+the tests).
+
+**Try it on the examples.** `examples/ftir_calibration.xlsx` contains three planted problems: a
+fouled-probe spectrum, a decimal-point typing error and two swapped labels. The outlier step
+flags exactly these. Removing them takes ethanol RMSECV from **1.18 to 0.10 % w/v**
+(validation 0.10), and the model goes from 2 to 8 PLS components. Then save the model and run the
+auto-check with `ftir_new_lab_ok.xlsx` (→ OK) and `ftir_new_lab_drift.xlsx` (→ ACTION; the
+automatic update refits with the new samples and brings the error back to ~0.10).
+
+**Unattended checks.** The same check runs from the command line, so Windows Task Scheduler (or
+any scheduler) can run it daily. Exit code 2 means action is needed:
+
+```bash
+py -3.12 -m fermentrack.workbench.autovalidate --model Ethanol --data new_lab.xlsx --auto-update
+```
+
+An automatic update is saved as a new version and activated **only** if it beats the current
+version on held-out new samples without getting worse on the original validation set.
+Every check is appended to `model_registry/<model>/checks.csv`. The registry folder is kept out of git
+because it can contain confidential plant data.
+
 ## Design decisions worth discussing
 
 * **Batch-wise splits everywhere** (CV folds, train/test): samples within a batch are not
@@ -221,7 +279,7 @@ calibration's cross-validation.
 
 ## Tests
 
-`pytest` runs 21 tests: physics sanity (mass balance, Beer-Lambert linearity, faults reduce
+`pytest` runs 45 tests. Dashboard and simulation (21): physics sanity (mass balance, Beer-Lambert linearity, faults reduce
 yield), chemometrics (SNV, derivatives, exact PLS recovery, batch-wise folds), process rules
 (persistence, Q flags an unknown band, EWMA detects drift, features never use future data)
-and an end-to-end run with minimum performance requirements.
+and an end-to-end run with minimum performance requirements. Workbench (24): both file layouts, MSC, splits, PLS accuracy, ANN beating PLS on curved data, planted outliers found, robustness tools, registry/update/auto-check including the command-line exit codes, and a headless click-through of every workbench step.

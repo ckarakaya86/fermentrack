@@ -20,6 +20,7 @@ import streamlit as st
 
 from fermentrack import config as C
 from fermentrack import pipeline
+from fermentrack.workbench.ui import render as workbench_render
 from fermentrack.yield_model import FEATURES
 
 st.set_page_config(page_title="FermenTrack", page_icon="🧪", layout="wide")
@@ -75,7 +76,7 @@ def base_layout(fig, title, ytitle, height=300, xtitle="Time (h)"):
 
 
 def show(fig):
-    st.plotly_chart(fig, use_container_width=True, theme="streamlit")
+    st.plotly_chart(fig, width="stretch", theme="streamlit")
 
 
 def analyte_chart(title, analytes, pred_b, lab_b, t_now, truth_b=None, envelope=None,
@@ -289,7 +290,7 @@ def page_overview(D):
                           default=sorted(D["alerts"].category.unique()))
     a = D["alerts"][D["alerts"].category.isin(cats)]
     st.dataframe(a[["batch_id", "time_h", "category", "severity", "title", "message"]],
-                 use_container_width=True, hide_index=True,
+                 width="stretch", hide_index=True,
                  column_config={"time_h": st.column_config.NumberColumn("time (h)", format="%.1f"),
                                 "message": st.column_config.TextColumn(width="large")})
 
@@ -298,7 +299,7 @@ def page_overview(D):
     cols = ["batch_id", "split", "final_ethanol_lab", "yield_pct_lab", "alerts"]
     if show_truth:
         cols += ["scenario", "instrument_drift", "fault_onset_h"]
-    st.dataframe(b[cols].round(2), use_container_width=True, hide_index=True)
+    st.dataframe(b[cols].round(2), width="stretch", hide_index=True)
 
 
 # ============================================================================
@@ -328,7 +329,7 @@ def perf_pls(D):
                  "RMSEP_test_drift": "RMSEP drift period", "R2_CV": "R² CV",
                  "range_min": "cal. min", "range_max": "cal. max"}
     st.dataframe(p[list(show_cols)].rename(columns=show_cols).round(3), hide_index=True,
-                 use_container_width=True)
+                 width="stretch")
     st.caption(f"Errors in {C.UNIT}. RMSECV = batch-wise 8-fold cross-validation on training "
                "lab samples. RMSEP test = clean test batches. The drift period shows how an "
                "ageing instrument degrades a fixed calibration.")
@@ -362,7 +363,7 @@ def perf_pls(D):
         show(base_layout(fig, "Choosing the number of PLS components", f"RMSECV ({C.UNIT})",
                          380, "Components"))
     st.markdown("**Preprocessing recipes tried** (best first)")
-    st.dataframe(cal.candidates.round(4), hide_index=True, use_container_width=True)
+    st.dataframe(cal.candidates.round(4), hide_index=True, width="stretch")
 
 
 def perf_yield(D):
@@ -413,19 +414,19 @@ def perf_yield(D):
         fig.update_yaxes(autorange="reversed")
         show(base_layout(fig, "What drives the forecast", "", 400,
                          "Effect of +1 SD (yield, % points)"))
-    st.dataframe(y.round(3), hide_index=True, use_container_width=True)
+    st.dataframe(y.round(3), hide_index=True, width="stretch")
 
 
 def perf_anomaly(D):
     v = D["verdicts"]
     test = v[v.split == "test"]
-    st.dataframe(test, hide_index=True, use_container_width=True)
+    st.dataframe(test, hide_index=True, width="stretch")
     summ = (v[v.scenario != "normal"].groupby(["split", "scenario"])
             .agg(batches=("batch_id", "size"), detected=("detected", "mean"),
                  median_delay_h=("delay_h", "median")).reset_index())
     st.markdown("**Detection by fault type** (delay = hours from the moment the fault starts "
                 "in the simulation, e.g. bacteria entering, to the alarm)")
-    st.dataframe(summ.round(2), hide_index=True, use_container_width=True)
+    st.dataframe(summ.round(2), hide_index=True, width="stretch")
     fa = v[v.scenario == "normal"].groupby("split").false_alarm.mean()
     st.write("False-alarm rate on normal batches: " +
              ", ".join(f"{k}: {100 * x:.0f} %" for k, x in fa.items()))
@@ -496,12 +497,15 @@ RMSECV curve.
 
 # ============================================================================
 def main():
-    D = load_all()
     st.sidebar.title("🧪 FermenTrack")
     st.sidebar.caption("Fermentation process intelligence · simulated data")
-    pages = ["Batch monitor", "Plant overview", "Model performance", "About"]
-    keys = {"monitor": 0, "overview": 1, "performance": 2, "about": 3}
+    pages = ["Batch monitor", "Plant overview", "Model performance", "Model workbench", "About"]
+    keys = {"monitor": 0, "overview": 1, "performance": 2, "workbench": 3, "about": 4}
     page = st.sidebar.radio("Page", pages, index=keys.get(st.query_params.get("page", ""), 0))
+    if page == "Model workbench":           # build / update / check your own FTIR models
+        workbench_render()
+        return
+    D = load_all()
     {"Batch monitor": page_batch, "Plant overview": page_overview,
      "Model performance": page_performance, "About": page_about}[page](D)
 

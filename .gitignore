@@ -8,3 +8,6 @@ __pycache__/
 .venv/
 .streamlit/secrets.toml
 .claude/
+
+# your saved models (may contain confidential plant data)
+model_registry/
