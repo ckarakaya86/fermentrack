@@ -35,7 +35,7 @@ Or from a terminal:
 pip install -r requirements.txt
 python -m fermentrack.pipeline      # simulate + train + evaluate, prints a report
 streamlit run app.py                # dashboard at http://localhost:8501
-pytest                              # 48 tests, ~40 s
+pytest                              # 50 tests, ~40 s
 ```
 
 Useful dashboard links: `?page=monitor&batch=68&t=30` (replay batch 68 up to 30 h),
@@ -233,7 +233,7 @@ from your own FTIR (or NIR) spectra and lab/physical measurements. Open it with
 | 5 Outliers | Review flagged samples, tick and exclude, re-fit | T² (extreme), Q (unexplained spectrum), studentised CV residual (suspicious lab value); every exclusion is logged with its reason and can be undone |
 | 6 Robustness | Run three tests | Disturbed spectra (noise, offset, slope, gain, wavenumber shift), many random splits, y-randomisation (chance-correlation check) |
 | 7 Save & update | Save a version; update it with new lab-checked samples | Versioned registry with model cards (settings, statistics, data hash, exclusions). Update candidates: *bias update* or *refit with old + new samples*, judged on new samples they never saw |
-| 8 Auto-check | Check a saved model against new lab results | OK / WARNING / ACTION from accuracy vs promise, bias t-test, EWMA drift across checks and spectra outside the model, plus the likely fix. Optional automatic update |
+| 8 Auto-check | Check a saved model against new lab results; compare all versions on the same data | OK / WARNING / ACTION from accuracy vs promise, bias t-test, EWMA drift across checks and spectra outside the model, plus the likely fix. Optional automatic update |
 
 ![Workbench: data step with format help and templates](docs/screenshots/wb_data.png)
 
@@ -294,7 +294,7 @@ because it can contain confidential plant data.
 
 ## Tests
 
-`pytest` runs 48 tests. Dashboard and simulation (21): physics sanity (mass balance, Beer-Lambert linearity, faults reduce
+`pytest` runs 50 tests. Dashboard and simulation (21): physics sanity (mass balance, Beer-Lambert linearity, faults reduce
 yield), chemometrics (SNV, derivatives, exact PLS recovery, batch-wise folds), process rules
 (persistence, Q flags an unknown band, EWMA detects drift, features never use future data)
 and an end-to-end run with minimum performance requirements. Workbench (24): both file layouts, MSC, splits, PLS accuracy, ANN beating PLS on curved data, planted outliers found, robustness tools, registry/update/auto-check including the command-line exit codes, and a headless click-through of every workbench step.

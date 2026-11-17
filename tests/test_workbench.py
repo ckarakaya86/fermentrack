@@ -196,3 +196,31 @@ def test_all_templates_give_the_same_data():
     for other in (b, c, d):
         assert np.allclose(other.X, a.X, atol=1e-5)
     assert np.allclose(b.Y["Ethanol"], a.Y["Ethanol"]) and np.allclose(c.Y["Ethanol"], a.Y["Ethanol"])
+
+
+# --- tracking performance per version ---------------------------------------------------
+def test_version_tracking_and_duplicate_guard(example, tmp_path):
+    clean = ~np.isin(example.ids, ["B03-32.3h", "B03-08.0h", "B09-60.0h", "B02-40.0h"])
+    d = example.subset(clean)
+    g = d.meta["group"].to_numpy()
+    pkg = registry.build_package("Eth", ModelSpec(), Pipeline(deriv=1, deriv_window=11), d.X, d.wn,
+                                 d.Y["Ethanol"].to_numpy(), d.ids, g, split.by_group(g, 0.25),
+                                 fingerprint=d.fingerprint())
+    registry.save(pkg, tmp_path)
+    with pytest.raises(registry.DuplicateVersion):          # double click must not create a copy
+        registry.save(pkg, tmp_path)
+
+    ok = io.read_spectra(EX / "ftir_new_lab_ok.xlsx")
+    drift = io.read_spectra(EX / "ftir_new_lab_drift.xlsx")
+    autovalidate.run("Eth", drift.X, drift.wn, drift.Y["Ethanol"].to_numpy(), drift.ids,
+                     drift.meta["group"].to_numpy(), auto_update=True, root=tmp_path)   # -> v002
+    r = autovalidate.run("Eth", ok.X, ok.wn, ok.Y["Ethanol"].to_numpy(), ok.ids, root=tmp_path)
+    assert r["version"] == "v002"
+    assert abs(r["ewma_bias"] - 0.3 * r["bias"]) < 1e-12     # drift test restarted for the new version
+
+    summ = registry.version_summary("Eth", tmp_path)
+    assert list(summ.version) == ["v001", "v002"] and list(summ.checks) == [1, 1]
+
+    cmp_ = registry.compare_versions("Eth", drift.X, drift.wn, drift.Y["Ethanol"].to_numpy(), tmp_path)
+    assert cmp_.set_index("version").loc["v002", "best"]     # the updated version wins on drift data
+    assert cmp_.set_index("version").loc["v002", "active"]

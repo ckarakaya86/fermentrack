@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-17: Tracking performance per version
+
+* Step 8: *Compare all versions on this data* runs every saved version on the same new lab samples (the fair old-vs-new comparison) and tells you if a non-active version is better.
+* *Performance per version* table and a check-history chart coloured by version, with a marker where a new version went live.
+* The drift test (EWMA) restarts for every version, so an old model's errors no longer affect the new one.
+* Saving a model identical to an existing version (e.g. a double click) is refused instead of creating a copy.
+* 2 new tests (50 in total).
+
 ## 2026-11-16: Screenshots and outlier rules
 
 * All screenshots retaken after the pages finished loading (`docs/make_screenshots.py`, Playwright + Edge); Workbench screenshots added to the README and guide.

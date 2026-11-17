@@ -65,3 +65,22 @@ def test_clean_save_then_autocheck_flags_drift():
     at = _click(at, "Run check")
     assert not at.exception
     assert any("ACTION" in e.value for e in at.error)
+
+
+def test_compare_versions_button():
+    at = _app("outliers")
+    at = _click(at, "Exclude ticked samples")
+    at.sidebar.radio(key="wb_step").set_value("7 Save & update")
+    at.run()
+    at = _click(at, "Save as new version")
+    at = _click(at, "Save as new version")                  # second click: duplicate, not saved
+    assert any("Identical" in i.value for i in at.info)
+    at.sidebar.radio(key="wb_step").set_value("8 Auto-check")
+    at.run()
+    next(r for r in at.radio if "an example" in r.label).set_value("ftir_new_lab_ok.xlsx")
+    at.run()
+    at = _click(at, "Run check")
+    at = _click(at, "Compare all versions")
+    assert not at.exception
+    assert any("best" in s.value for s in at.success)
+    assert any(h.value.startswith("Performance per version") for h in at.subheader)

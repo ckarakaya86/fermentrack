@@ -121,11 +121,33 @@ def _json_default(o):
     return str(o)
 
 
+class DuplicateVersion(Exception):
+    """Raised when a package is identical to an already saved version."""
+
+
+def _same_as(pkg: ModelPackage, card: dict) -> bool:
+    m = pkg.model
+    return (card.get("data_fingerprint") == pkg.data_fingerprint
+            and card.get("model_settings") == m.spec.settings()
+            and card.get("preprocessing_settings") == m.pipeline.settings()
+            and abs(card.get("bias_correction", 0.0) - pkg.bias_correction) < 1e-12
+            and card.get("n_calibration") == int(len(pkg.train_y))
+            and card.get("components_used") == m.k)
+
+
 def save(pkg: ModelPackage, root=DEFAULT_ROOT, activate=None) -> str:
-    """Store a package as the next version. The first version becomes active automatically."""
+    """Store a package as the next version. The first version becomes active automatically.
+
+    Saving a model identical to an existing version (same data, settings and size) raises
+    DuplicateVersion instead of creating a copy (e.g. after a double click).
+    """
     folder = _folder(pkg.name, root)
     folder.mkdir(parents=True, exist_ok=True)
     idx = _index(pkg.name, root)
+    for v in idx["versions"]:
+        card_path = folder / f"{v['version']}.json"
+        if card_path.exists() and _same_as(pkg, json.loads(card_path.read_text())):
+            raise DuplicateVersion(f"Identical to {pkg.name} {v['version']} - not saved again.")
     pkg.version = f"v{len(idx['versions']) + 1:03d}"
     pkg.created = datetime.now().isoformat(timespec="seconds")
     with open(folder / f"{pkg.version}.pkl", "wb") as f:
@@ -266,3 +288,42 @@ def _clone(pkg: ModelPackage, **changes) -> ModelPackage:
     new = ModelPackage(**d)
     new.parent, new.version, new.created = pkg.version, "", ""
     return new
+
+
+# ---------------------------------------------------------------------------
+# tracking performance per version
+# ---------------------------------------------------------------------------
+def compare_versions(name, X, wn, y, root=DEFAULT_ROOT) -> pd.DataFrame:
+    """Every saved version on the SAME new samples: the fair way to compare old and new."""
+    idx = _index(name, root)
+    y = np.asarray(y, float)
+    ok = ~np.isnan(y)
+    rows = []
+    for v in idx["versions"]:
+        pkg = load(name, v["version"], root)
+        st = regression_stats(y[ok], pkg.predict(np.asarray(X, float)[ok], wn))
+        rows.append({"version": v["version"], "active": v["version"] == idx["active"],
+                     "model": pkg.model.spec.describe(), "created": v["created"],
+                     "promised RMSECV": pkg.model.cv_stats()["RMSE"], "RMSE on these samples": st["RMSE"],
+                     "bias": st["bias"], "SEP": st["SEP"], "R2": st["R2"], "n": st["n"]})
+    df = pd.DataFrame(rows)
+    if len(df):
+        df["best"] = df["RMSE on these samples"] == df["RMSE on these samples"].min()
+    return df
+
+
+def version_summary(name, root=DEFAULT_ROOT) -> pd.DataFrame:
+    """Check history summarised per version: how each version has performed since it went live."""
+    hp = history_path(name, root)
+    if not hp.exists():
+        return pd.DataFrame()
+    h = pd.read_csv(hp)
+    g = h.groupby("version", sort=False)
+    out = pd.DataFrame({
+        "checks": g.size(), "samples": g.n.sum(),
+        "first check": g.time.first(), "last check": g.time.last(),
+        "promised RMSECV": g.expected_RMSE.last(),
+        "mean RMSEP": g.RMSEP.mean(), "last RMSEP": g.RMSEP.last(), "last bias": g.bias.last(),
+        "last verdict": g.verdict.last(),
+    }).reset_index()
+    return out

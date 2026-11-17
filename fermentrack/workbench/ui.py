@@ -791,8 +791,11 @@ def step_registry():
             pkg = registry.build_package(name, spec, current_pipeline(), d.X[inc], d.wn, y_all()[inc],
                                          d.ids[inc], None if g is None else g[inc], val[inc], exc,
                                          notes, d.fingerprint())
-            ver = registry.save(pkg, root)
-            st.success(f"Saved {name} {ver}.")
+            try:
+                ver = registry.save(pkg, root)
+                st.success(f"Saved {name} {ver}.")
+            except registry.DuplicateVersion as e:
+                st.info(str(e))
 
     models = registry.list_models(root)
     if models.empty:
@@ -833,14 +836,54 @@ def step_registry():
         rec = cands["recommended"]
         st.info(f"Recommended: **{rec}**" + ("" if rec != "current" else " (no candidate was clearly better)"))
         if rec != "current" and st.button(f"Save '{rec}' as new active version", type="primary"):
-            ver = registry.save(cands["bias" if rec == "bias update" else "augment"], root, activate=True)
+            try:
+                ver = registry.save(cands["bias" if rec == "bias update" else "augment"], root, activate=True)
+                st.success(f"Saved and activated {name} {ver}.")
+            except registry.DuplicateVersion as e:
+                st.info(str(e))
             S()["wb_update"] = None
-            st.success(f"Saved and activated {name} {ver}.")
 
 
 # ============================================================================
 # 8 Auto-check
 # ============================================================================
+VERSION_COLORS = [BLUE, ORANGE, AQUA, "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"]
+
+
+def track_versions(name, root):
+    """Check history with each version in its own colour, and a per-version summary."""
+    hp = registry.history_path(name, root)
+    if not hp.exists():
+        st.caption("No checks yet. Each check is recorded with the version it tested.")
+        return
+    h = pd.read_csv(hp)
+    h["check"] = np.arange(1, len(h) + 1)
+    st.subheader("Performance per version")
+    st.dataframe(registry.version_summary(name, root).round(4), hide_index=True, width="stretch")
+    st.caption("Each version is judged against its own promise (its RMSECV). The drift test restarts "
+               "when a new version goes live.")
+    versions = list(dict.fromkeys(h.version))
+    fig = go.Figure()
+    for i, v in enumerate(versions):
+        g = h[h.version == v]
+        c = VERSION_COLORS[i % len(VERSION_COLORS)]
+        fig.add_trace(go.Scatter(x=g.check, y=g.RMSEP, mode="lines+markers", name=f"{v} RMSEP",
+                                 line=dict(color=c, width=2), marker=dict(size=9),
+                                 customdata=g[["verdict", "n"]],
+                                 hovertemplate=f"{v}<br>check %{{x}}<br>RMSEP %{{y:.4g}}<br>"
+                                               "%{customdata[0]}, %{customdata[1]} samples<extra></extra>"))
+        fig.add_trace(go.Scatter(x=[g.check.min() - 0.4, g.check.max() + 0.4], y=[g.expected_RMSE.iat[-1]] * 2,
+                                 mode="lines", name=f"{v} promised", line=dict(color=c, dash="dash", width=1)))
+    changes = h.check[h.version != h.version.shift()].iloc[1:]
+    for x in changes:
+        fig.add_vline(x=x - 0.5, line=dict(color=MUTED, dash="dot"),
+                      annotation_text=f"→ {h.version[h.check == x].iat[0]}", annotation_position="top")
+    fig.update_xaxes(dtick=1)
+    show(layout(fig, f"{name}: error at each check, by version", "RMSEP", "check number", 320))
+    with st.expander("All checks"):
+        st.dataframe(h.drop(columns=["model"], errors="ignore").round(4), hide_index=True, width="stretch")
+
+
 def step_autocheck():
     st.header("8 · Automatic validation")
     root = registry.DEFAULT_ROOT
@@ -849,22 +892,39 @@ def step_autocheck():
         st.info("Save a model in step 7 first.")
         return
     st.caption("Checks the active version of a model against new lab results: accuracy vs what the "
-               "model promised, bias, slow drift (EWMA over all checks) and spectra outside the model. "
-               "The same check can run unattended from the command line (see below).")
+               "model promised, bias, slow drift (EWMA over the checks of the same version) and spectra "
+               "outside the model. The same check can run unattended from the command line (see below).")
     name = st.selectbox("Model", models.model.tolist(), key="wb_chk_model")
     c1, c2 = st.columns(2)
     f = c1.file_uploader("New lab samples (spectra + reference)", type=["xlsx", "csv"], key="wb_chk_file")
     ex = c2.radio("…or an example", ["none", "ftir_new_lab_ok.xlsx", "ftir_new_lab_drift.xlsx"])
     auto = st.checkbox("Allow automatic update (saves a better version if action is needed)")
-    if st.button("Run check", type="primary") and (f is not None or ex != "none"):
+
+    def new_data():
+        if f is None and ex == "none":
+            st.warning("Choose a file or an example first.")
+            return None, None
         nd = read_example(ex) if ex != "none" else io.read_spectra(f, name=f.name)
-        pkg = registry.load(name, root=root)
-        if pkg.property not in nd.Y.columns:
-            st.error(f"New file has no column '{pkg.property}'.")
-        else:
+        prop_name = registry.load(name, root=root).property
+        if prop_name not in nd.Y.columns:
+            st.error(f"New file has no column '{prop_name}'.")
+            return None, None
+        return nd, prop_name
+
+    b1, b2 = st.columns([1, 3])
+    if b1.button("Run check", type="primary"):
+        nd, pr = new_data()
+        if nd is not None:
             g = nd.meta["group"].to_numpy() if "group" in nd.meta.columns else None
-            S()["wb_check"] = autovalidate.run(name, nd.X, nd.wn, nd.Y[pkg.property].to_numpy(),
-                                               nd.ids, g, auto, root)
+            S()["wb_check"] = autovalidate.run(name, nd.X, nd.wn, nd.Y[pr].to_numpy(), nd.ids, g, auto, root)
+            S()["wb_compare"] = None
+    if b2.button("Compare all versions on this data",
+                 help="Runs every saved version on the same new samples - the fair way to see whether "
+                      "a new version is really better than the old one. Nothing is saved or changed."):
+        nd, pr = new_data()
+        if nd is not None:
+            S()["wb_compare"] = (name, registry.compare_versions(name, nd.X, nd.wn, nd.Y[pr].to_numpy(), root))
+
     res = S().get("wb_check")
     if res and res["model"] == name:
         box = {"OK": st.success, "WARNING": st.warning, "ACTION": st.error}[res["verdict"]]
@@ -878,21 +938,28 @@ def step_autocheck():
         with st.expander("Per-sample results"):
             st.dataframe(res["samples"].round(4), hide_index=True, width="stretch")
 
-    hp = registry.history_path(name, root)
-    if hp.exists():
-        h = pd.read_csv(hp)
-        st.subheader("Check history")
+    cmp_ = S().get("wb_compare")
+    if cmp_ and cmp_[0] == name:
+        st.subheader("All versions on the same new samples")
+        df = cmp_[1]
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=list(range(1, len(h) + 1)), y=h.RMSEP, mode="lines+markers",
-                                 name="RMSEP", line=dict(color=BLUE, width=2)))
-        fig.add_trace(go.Scatter(x=list(range(1, len(h) + 1)), y=h.bias, mode="lines+markers",
-                                 name="bias", line=dict(color=ORANGE, width=2)))
-        fig.add_trace(go.Scatter(x=list(range(1, len(h) + 1)), y=h.expected_RMSE, mode="lines",
-                                 name="promised (RMSECV)", line=dict(color=MUTED, dash="dash")))
-        fig.update_xaxes(dtick=1)                        # whole check numbers only
-        show(layout(fig, f"{name}: error at each check", "error", "check number", 300))
-        st.dataframe(h.drop(columns=["model"], errors="ignore").round(4), hide_index=True,
-                     width="stretch")
+        fig.add_trace(go.Bar(x=df.version, y=df["RMSE on these samples"], name="RMSE on these samples",
+                             marker_color=[ORANGE if a else BLUE for a in df.active],
+                             hovertemplate="%{x}: %{y:.4g}<extra></extra>"))
+        fig.add_trace(go.Scatter(x=df.version, y=df["promised RMSECV"], mode="markers", name="promised (RMSECV)",
+                                 marker=dict(color=MUTED, symbol="line-ew-open", size=28, line=dict(width=2))))
+        show(layout(fig, f"{name}: error of every version on the same samples (orange = active)",
+                    "RMSE", "version", 320))
+        st.dataframe(df.round(4), hide_index=True, width="stretch")
+        best = df[df.best].version.iat[0]
+        act = df[df.active].version.iat[0] if df.active.any() else None
+        if act and best != act:
+            st.info(f"On these samples **{best}** is better than the active version **{act}**. If this "
+                    f"holds on more data, make {best} active in step 7.")
+        else:
+            st.success(f"The active version {act} is the best on these samples.")
+
+    track_versions(name, root)
 
     with st.expander("Run it automatically (Windows Task Scheduler)"):
         root_dir = Path(__file__).resolve().parents[2]

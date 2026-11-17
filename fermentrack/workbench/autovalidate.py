@@ -8,7 +8,7 @@ Run it whenever new lab values arrive, by hand or on a schedule:
 What it checks (all relative to what the model promised at calibration time):
 * accuracy  - RMSEP of the new samples vs the model's own RMSECV
 * bias      - is the average error significantly different from zero? (t-test)
-* trend     - EWMA of the average error over all past checks (slow drift)
+* trend     - EWMA of the average error over past checks of THIS version (slow drift)
 * spectra   - how many new spectra fall outside the model (Q / T² outliers)
 
 Verdict:
@@ -115,6 +115,10 @@ def run(name, X, wn, y, ids=None, groups=None, auto_update=False, root=registry.
     pkg = registry.load(name, root=root)
     hp = registry.history_path(name, root)
     history = pd.read_csv(hp) if hp.exists() else None
+    if history is not None and "version" in history:
+        # the drift test (EWMA) starts fresh for every version: an old model's errors
+        # say nothing about the new one
+        history = history[history.version == pkg.version]
     res = check(pkg, X, wn, y, ids, history)
     res["update"] = None
     if auto_update and res["verdict"] == "ACTION":
@@ -124,8 +128,10 @@ def run(name, X, wn, y, ids=None, groups=None, auto_update=False, root=registry.
         if rec != "current":
             new = cands["bias" if rec == "bias update" else "augment"]
             new.notes += " (automatic update)"
-            ver = registry.save(new, root, activate=True)
-            res["update"]["saved"] = ver
+            try:
+                res["update"]["saved"] = registry.save(new, root, activate=True)
+            except registry.DuplicateVersion:
+                res["update"]["recommended"] += " (identical version already saved)"
     log = {k: v for k, v in res.items() if k not in ("samples", "update")}
     log["auto_update"] = None if res["update"] is None else (res["update"]["saved"] or "kept current")
     pd.DataFrame([log]).to_csv(hp, mode="a", header=not hp.exists(), index=False)

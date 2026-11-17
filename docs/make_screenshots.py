@@ -158,6 +158,11 @@ def main():
             click(page, "ftir_new_lab_drift.xlsx")
             click(page, "Allow automatic update (saves a better version if action is needed)")
             button(page, "Run check")
+            click(page, "ftir_new_lab_ok.xlsx")                    # first check of the new version
+            click(page, "Allow automatic update (saves a better version if action is needed)")
+            button(page, "Run check")
+            click(page, "ftir_new_lab_drift.xlsx")
+            button(page, "Compare all versions on this data")
             shot(page, "wb_autocheck")
             click(page, "7 Save & update")
             shot(page, "wb_registry")
