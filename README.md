@@ -35,7 +35,7 @@ Or from a terminal:
 pip install -r requirements.txt
 python -m fermentrack.pipeline      # simulate + train + evaluate, prints a report
 streamlit run app.py                # dashboard at http://localhost:8501
-pytest                              # 50 tests, ~40 s
+pytest                              # 51 tests, ~40 s
 ```
 
 Useful dashboard links: `?page=monitor&batch=68&t=30` (replay batch 68 up to 30 h),
@@ -245,6 +245,8 @@ from your own FTIR (or NIR) spectra and lab/physical measurements. Open it with
 
 ![Workbench: automatic validation](docs/screenshots/wb_autocheck.png)
 
+**The dashboard uses your models.** Once a version is active, the dashboard predicts that analyte with it instead of its built-in PLS model, recalculating automatically when the active version changes. *Model performance* shows which model each analyte uses.
+
 **PLS-ANN.** The neural network does not see raw spectra (hundreds of correlated points, few
 samples, so it would overfit). It sees the first *k* PLS scores, a compact, noise-reduced summary,
 and can then model curvature PLS cannot. An ensemble of small networks gives a spread
@@ -294,7 +296,7 @@ because it can contain confidential plant data.
 
 ## Tests
 
-`pytest` runs 50 tests. Dashboard and simulation (21): physics sanity (mass balance, Beer-Lambert linearity, faults reduce
+`pytest` runs 51 tests. Dashboard and simulation (21): physics sanity (mass balance, Beer-Lambert linearity, faults reduce
 yield), chemometrics (SNV, derivatives, exact PLS recovery, batch-wise folds), process rules
 (persistence, Q flags an unknown band, EWMA detects drift, features never use future data)
 and an end-to-end run with minimum performance requirements. Workbench (24): both file layouts, MSC, splits, PLS accuracy, ANN beating PLS on curved data, planted outliers found, robustness tools, registry/update/auto-check including the command-line exit codes, and a headless click-through of every workbench step.

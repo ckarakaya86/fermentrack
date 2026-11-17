@@ -327,3 +327,12 @@ def version_summary(name, root=DEFAULT_ROOT) -> pd.DataFrame:
         "last verdict": g.verdict.last(),
     }).reset_index()
     return out
+
+
+def signature(root=DEFAULT_ROOT) -> str:
+    """Short fingerprint of which versions are active; changes whenever a model is saved/activated."""
+    parts = []
+    for p in sorted(Path(root).glob("*/registry.json")):
+        idx = json.loads(p.read_text())
+        parts.append(f"{p.parent.name}:{idx.get('active')}:{len(idx.get('versions', []))}")
+    return "|".join(parts)

@@ -26,6 +26,8 @@ from . import dataset
 from .anomaly import batch_signals, build_detector, evaluate as evaluate_alerts
 from .calibration_health import WATCHED, batch_sigma, check_analyte, health_alerts, residual_table
 from .chemometrics import SpectralCalibration, rmse, r2
+from . import model_source
+from .workbench import registry as wb_registry
 from .yield_model import EarlyYieldPredictor
 
 
@@ -36,13 +38,17 @@ class Results:
     yield_predictor: EarlyYieldPredictor
     health_checks: list
     metrics: dict
+    saved_models: dict = None        # analyte -> active ModelPackage from the workbench (if used)
 
 
 def log(msg, t0):
     print(f"[{time.time() - t0:5.1f}s] {msg}", flush=True)
 
 
-def run(seed: int = C.SEED, save: bool = True, verbose: bool = True):
+def run(seed: int = C.SEED, save: bool = True, verbose: bool = True,
+        use_saved_models: bool = True, registry_root=None):
+    """Run everything. With use_saved_models, an active Model-Workbench version replaces the
+    built-in PLS model for its analyte (see model_source.py)."""
     t0 = time.time()
     say = (lambda m: log(m, t0)) if verbose else (lambda m: None)
 
@@ -64,11 +70,27 @@ def run(seed: int = C.SEED, save: bool = True, verbose: bool = True):
 
     # 3) in-line predictions for every spectrum ---------------------------------
     pred = calib.predict(data.spectra)
+    root = wb_registry.DEFAULT_ROOT if registry_root is None else registry_root
+    saved, skipped = (model_source.active_saved_models(data.wavenumbers, root)
+                      if use_saved_models else ({}, []))
+    for a, pkg in saved.items():                      # your maintained model replaces the built-in one
+        pred[a] = np.clip(pkg.predict(data.spectra, data.wavenumbers), 0, None)
+        say(f"{C.LABELS[a]}: using saved model {model_source.describe(pkg)}")
+    for name, why in skipped:
+        say(f"Saved model {name} not used: {why}")
     pred.insert(0, "time_h", data.process["time_h"].to_numpy())
     pred.insert(0, "batch_id", data.process["batch_id"].to_numpy())
     lab_pred = pred.iloc[lab.spectrum_row.to_numpy()].reset_index(drop=True)
 
     perf = calib.summary()
+    perf["model_source"] = "built-in PLS"
+    for a, pkg in saved.items():                      # report the model that is actually used
+        i = perf.index[perf.analyte == a][0]
+        cv = pkg.model.cv_stats()
+        perf.loc[i, ["model_source", "preprocessing", "components", "RMSECV", "R2_CV"]] = [
+            "saved: " + model_source.describe(pkg), pkg.model.pipeline.describe(), pkg.model.k,
+            cv["RMSE"], cv["R2"]]
+        perf.loc[i, ["range_min", "range_max"]] = [float(pkg.model.y_cal.min()), float(pkg.model.y_cal.max())]
     groups = {
         "RMSEP_test_clean": (lab.split == "test") & ~lab.instrument_drift & (lab.scenario != "probe_fouling"),
         "RMSEP_test_drift": lab.instrument_drift,
@@ -102,9 +124,13 @@ def run(seed: int = C.SEED, save: bool = True, verbose: bool = True):
     probe_bad = monitoring["flag_balance"].to_numpy()[lab.spectrum_row.to_numpy()]
     res["probe_ok"] = ~probe_bad
     groups_cal = cal.batch_id.to_numpy()
-    checks = [check_analyte(res[res.probe_ok], a,
-                            batch_sigma(calib.models[a].cv_pred - calib.models[a].y_cal, groups_cal),
-                            C.N_TRAIN_BATCHES) for a in WATCHED]
+    def sigma(a):        # expected batch-to-batch scatter of the model that is actually used
+        if a in saved:
+            m = saved[a].model
+            g = saved[a].train_groups if saved[a].train_groups is not None else m.cal_ids
+            return batch_sigma(m.cv_pred - m.y_cal, np.asarray(g))
+        return batch_sigma(calib.models[a].cv_pred - calib.models[a].y_cal, groups_cal)
+    checks = [check_analyte(res[res.probe_ok], a, sigma(a), C.N_TRAIN_BATCHES) for a in WATCHED]
     alerts += health_alerts(checks)
     alerts = pd.DataFrame(alerts).sort_values(["batch_id", "time_h"]).reset_index(drop=True)
     verdicts = evaluate_alerts(alerts, data.batches)
@@ -132,8 +158,16 @@ def run(seed: int = C.SEED, save: bool = True, verbose: bool = True):
         "test_median_delay_h": float(faulty.delay_h.median()),
         "calibration_alarms": {c["analyte"]: c["alarm_batch"] for c in checks},
         "yield_20h": yield_eval.set_index("cutoff_h").loc[20].round(3).to_dict(),
+        "model_sources": {a: model_source.describe(pkg) for a, pkg in saved.items()},
+        "saved_models_skipped": [f"{n}: {why}" for n, why in skipped],
+        # saved models that already saw test-period batches give optimistic test errors
+        "saved_models_seen_test_batches": {
+            a: sorted(b_ for b_ in model_source.trained_on_batches(pkg) if b_ >= C.N_TRAIN_BATCHES)
+            for a, pkg in saved.items()
+            if any(b_ >= C.N_TRAIN_BATCHES for b_ in model_source.trained_on_batches(pkg))},
+        "registry_signature": wb_registry.signature(root) if use_saved_models else "",
     }
-    results = Results(calib, detector, yp, checks, metrics)
+    results = Results(calib, detector, yp, checks, metrics, saved)
     if save:
         out = C.OUTPUT_DIR
         out.mkdir(parents=True, exist_ok=True)

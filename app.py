@@ -20,6 +20,7 @@ import streamlit as st
 
 from fermentrack import config as C
 from fermentrack import pipeline
+from fermentrack.workbench import registry as wb_registry
 from fermentrack.workbench.ui import render as workbench_render
 from fermentrack.yield_model import FEATURES
 
@@ -324,17 +325,31 @@ def page_performance(D):
 def perf_pls(D):
     res = D["res"]
     p = D["pls"].copy()
-    show_cols = {"label": "Analyte", "preprocessing": "Preprocessing (chosen by CV)",
+    show_cols = {"label": "Analyte", "model_source": "Model used", "preprocessing": "Preprocessing",
                  "components": "PLS comps", "RMSECV": "RMSECV", "RMSEP_test_clean": "RMSEP test",
                  "RMSEP_test_drift": "RMSEP drift period", "R2_CV": "R² CV",
                  "range_min": "cal. min", "range_max": "cal. max"}
     st.dataframe(p[list(show_cols)].rename(columns=show_cols).round(3), hide_index=True,
                  width="stretch")
-    st.caption(f"Errors in {C.UNIT}. RMSECV = batch-wise 8-fold cross-validation on training "
-               "lab samples. RMSEP test = clean test batches. The drift period shows how an "
-               "ageing instrument degrades a fixed calibration.")
+    st.caption(f"Errors in {C.UNIT}. RMSECV = cross-validation on the model's own calibration "
+               "samples. RMSEP test = clean test batches of the plant. The drift period shows how an "
+               "ageing instrument degrades a fixed calibration. 'saved:' = the active version from "
+               "the Model workbench is used for this analyte (everything on the dashboard uses it).")
+    seen = D["metrics"].get("saved_models_seen_test_batches", {})
+    if seen:
+        st.warning("These saved models were trained with samples from test-period batches, so their "
+                   "test errors are optimistic: " + "; ".join(f"{C.LABELS[a]} (batches "
+                   f"{min(v)}-{max(v)})" for a, v in seen.items()))
     a = st.selectbox("Analyte", C.ANALYTES, format_func=C.LABELS.get)
-    cal = res.calibration.models[a]
+    saved = (res.saved_models or {}).get(a)
+    if saved is not None:                 # use the saved model's own calibration statistics
+        m = saved.model
+        cal = type("Cal", (), {"y_cal": m.y_cal, "cv_pred": m.cv_pred, "rmsecv_curve": m.cv_curve,
+                               "n_components": m.k, "candidates": None})()
+        st.info(f"{C.LABELS[a]} uses your saved model **{saved.name} {saved.version}** "
+                f"({m.spec.describe()}; {m.pipeline.describe()}). Manage it in the Model workbench.")
+    else:
+        cal = res.calibration.models[a]
     r = D["resid"].merge(D["batches"][["batch_id", "split", "instrument_drift"]])
     test = r[(r.split == "test") & r.probe_ok]
     c1, c2 = st.columns(2)
@@ -362,8 +377,11 @@ def perf_pls(D):
                       annotation_text=f"chosen: {cal.n_components}")
         show(base_layout(fig, "Choosing the number of PLS components", f"RMSECV ({C.UNIT})",
                          380, "Components"))
-    st.markdown("**Preprocessing recipes tried** (best first)")
-    st.dataframe(cal.candidates.round(4), hide_index=True, width="stretch")
+        if saved is not None and saved.model.spec.kind == "ANN":
+            st.caption("For an ANN this is the number of PLS scores fed to the network.")
+    if cal.candidates is not None:
+        st.markdown("**Preprocessing recipes tried** (best first)")
+        st.dataframe(cal.candidates.round(4), hide_index=True, width="stretch")
 
 
 def perf_yield(D):
@@ -506,6 +524,17 @@ def main():
         workbench_render()
         return
     D = load_all()
+    if D["metrics"].get("registry_signature", "") != wb_registry.signature():
+        # a model was saved / activated in the workbench: rebuild everything with it
+        with st.spinner("Your saved models changed - recalculating the dashboard (~15 s)..."):
+            pipeline.run(verbose=False)
+            load_all.clear()
+            D = load_all()
+    sources = D["metrics"].get("model_sources", {})
+    st.sidebar.markdown("---")
+    st.sidebar.caption("**In-line models**  \n" + "  \n".join(
+        f"{C.LABELS[a]}: saved {v.split(' (')[0]}" for a, v in sources.items())
+        + ("  \n" if sources else "") + "Other analytes: built-in PLS")
     {"Batch monitor": page_batch, "Plant overview": page_overview,
      "Model performance": page_performance, "About": page_about}[page](D)
 

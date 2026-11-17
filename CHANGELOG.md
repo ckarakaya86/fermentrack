@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-17: Dashboard runs on your saved models
+
+* The active version of a Model Workbench model replaces the built-in PLS model for its analyte everywhere on the dashboard (trajectories, alerts, yield forecast, calibration health).
+* The dashboard recalculates automatically when an active version changes.
+* *Model performance* shows the model used per analyte and that model's own statistics; the sidebar lists which analytes use saved models; a warning appears if a saved model was trained on test-period batches.
+* Incompatible saved models (wrong wavenumber range, unknown name) are skipped with a reason.
+* 1 new test (51 in total).
+
 ## 2026-11-17: Tracking performance per version
 
 * Step 8: *Compare all versions on this data* runs every saved version on the same new lab samples (the fair old-vs-new comparison) and tells you if a non-active version is better.

@@ -139,6 +139,17 @@ on top. Workbooks in this layout can be loaded directly; pick the sheet in step 
 
 Your saved models live in the `model_registry/` folder, which is **not** uploaded to GitHub.
 
+### Your saved models drive the dashboard
+
+When a model is saved in step 7 and its version is **active**, the dashboard uses it instead of
+its built-in PLS model for the matching analyte (matched by name, e.g. `Ethanol`,
+`Ethanol (% w/v)`, `DP4+`). In-line trajectories, alerts, the yield forecast and calibration
+health then all run on your model. The dashboard recalculates automatically (~15 s) whenever an
+active version changes. The left menu lists which analytes use a saved model, and
+*Model performance → Spectral calibration* shows the model in use and its errors for each
+analyte. Models that cannot read the dashboard spectra (e.g. a NIR model, or a name that
+matches no analyte) are skipped and the built-in model is kept.
+
 ### Running the check automatically every day
 
 ```bash
