@@ -10,8 +10,9 @@ Workflow for each analyte:
    components whose RMSECV is within 5 % of the minimum (a guard against overfitting).
 4. Refit on all calibration samples and report RMSEP on held-out test batches.
 
-The PLS algorithm is a NumPy NIPALS PLS1 (one model per analyte), written following
-Wold, Sjostrom & Eriksson (2001), Chemometrics and Intelligent Laboratory Systems 58, 109-130.
+The PLS algorithm is the standard NIPALS PLS1 (one model per analyte), written in NumPy
+following Wold, Sjostrom & Eriksson (2001), PLS-regression: a basic tool of chemometrics,
+Chemometrics and Intelligent Laboratory Systems 58, 109-130.
 """
 from __future__ import annotations
 

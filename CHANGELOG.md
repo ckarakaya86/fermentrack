@@ -36,8 +36,8 @@ A second part of FermenTrack for **building and maintaining your own spectral mo
 (FTIR / NIR spectra + lab or physical measurements). It opens with `Workbench.bat` or as the
 *Model workbench* page of the dashboard. See [docs/USER_GUIDE.md](docs/USER_GUIDE.md).
 
-* **Data**: Excel/CSV import in both layouts (rows = samples, or columns = samples like the
-  column-per-sample file); separate reference files matched by sample id; manual exclusion with reasons.
+* **Data**: Excel/CSV import in both layouts (rows = samples, or columns = samples with
+  wavenumbers in column A); separate reference files matched by sample id; manual exclusion with reasons.
 * **Spectra & preprocessing**: overlay plots coloured by value / set / exclusion; regions,
   baseline, SNV, MSC, Savitzky-Golay smoothing and derivatives (fitted on calibration only).
 * **Calibration / validation split**: random, Kennard-Stone, stratified by value, by group, by date.

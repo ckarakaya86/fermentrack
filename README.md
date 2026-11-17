@@ -13,7 +13,8 @@ step by step) · [Changelog](CHANGELOG.md) (what was added when)
 
 > This is an independent portfolio project. **All data are simulated** (fixed seed, fully
 > reproducible); no plant or vendor data or code are used. It runs entirely on a local
-> machine, with no cloud services.
+> machine, with no cloud services. Built with AI-assisted coding (Claude Code); problem
+> framing, modelling choices and validation design are mine.
 
 ![Batch monitor](docs/screenshots/batch_monitor.png)
 
@@ -35,7 +36,7 @@ Or from a terminal:
 pip install -r requirements.txt
 python -m fermentrack.pipeline      # simulate + train + evaluate, prints a report
 streamlit run app.py                # dashboard at http://localhost:8501
-pytest                              # 51 tests, ~40 s
+pytest                              # 51 tests (44 test functions), ~50 s
 ```
 
 Useful dashboard links: `?page=monitor&batch=68&t=30` (replay batch 68 up to 30 h),
@@ -296,7 +297,7 @@ because it can contain confidential plant data.
 
 ## Tests
 
-`pytest` runs 51 tests. Dashboard and simulation (21): physics sanity (mass balance, Beer-Lambert linearity, faults reduce
+`pytest` collects **51 tests from 44 test functions** (the interface test runs once for each of the 8 workbench steps). Dashboard and simulation (22 tests in 4 files): physics sanity (mass balance, Beer-Lambert linearity, faults reduce
 yield), chemometrics (SNV, derivatives, exact PLS recovery, batch-wise folds), process rules
 (persistence, Q flags an unknown band, EWMA detects drift, features never use future data)
-and an end-to-end run with minimum performance requirements. Workbench (24): both file layouts, MSC, splits, PLS accuracy, ANN beating PLS on curved data, planted outliers found, robustness tools, registry/update/auto-check including the command-line exit codes, and a headless click-through of every workbench step.
+an end-to-end run with minimum performance requirements, and a check that an active saved model is used by the dashboard. Workbench (29 tests: 17 + 12 interface runs): both file layouts, MSC, splits, PLS accuracy, ANN beating PLS on curved data, planted outliers found, robustness tools, registry/update/auto-check including the command-line exit codes, data templates and single-spectrum files, per-version tracking, and a headless click-through of every workbench step.
