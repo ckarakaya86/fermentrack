@@ -194,7 +194,7 @@ carries a plain-language reason and a suggested action.
 | Acetic-acid bacteria | 1 | 1/1 | 20 h |
 | Stuck fermentation | 2 | 2/2 | 16 h |
 | Probe fouling | 2 | 2/2 | 5 h |
-| **False alarms on normal batches** | 15 | **0** | |
+| **False alarms on normal batches** | 16 | **0** | |
 
 \*Delay counts from the moment the fault starts in the simulation (e.g. bacteria entering),
 long before it is chemically visible. In training data 5 of 7 stuck batches were caught; the
